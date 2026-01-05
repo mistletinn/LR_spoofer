@@ -14,5 +14,10 @@ Instructions:
      
 As of version 0.0.1, the script supports Function and Pattern commands for Lovense Remote, and sends Vibration, Oscillation and Rotation commands to Intiface Central.
 
+It currently only works with games with Lovense Remote integration that require ip and port of a Lovense server. Integration of other types of connections is planned.
+This script cannot be used for anything other than games with Lovense Remote inegration. It can't be used for cam/tipping, video/audio synchronization, etc. Those features aren't planned to be added.
+
 Confirmed games it works with:
   Voidbound
+
+
