@@ -15,6 +15,9 @@ function reparse_config(){
     config = ini.parse(config_raw);
 }
 
+//for logging
+let logging = false;
+
 //these 2 bool variables determine whether script tries to open connection (and keep it) or close it
 let LR_server_trying = config.LR_auto
 let IC_server_trying = config.IC_auto
@@ -27,8 +30,8 @@ const tui_data = {
             "title" :  "Main menu\n",
             "text" :
                 "1. Lovense Remote configuration\n" +
-                "2. Intiface Central Configuration\n" +
-                "3. Instructions\n"
+                "2. Intiface Central Configuration\n"
+
         },
         {
             "id": "1",
@@ -37,7 +40,8 @@ const tui_data = {
                 "1. Open/Close local server\n" +
                 "2. Turn on/off automatic server initialization on startup\n" +
                 "3. Change port\n" +
-                "4. Back to main menu\n"
+                "4. Turn command printing on/off\n" +
+                "5. Back to main menu\n"
         },
         {
             "id": "2",
@@ -88,6 +92,15 @@ const toy_data = {
     "type": "OK"
 }
 
+const toy_data_nora = {
+    "code": 200,
+    "data": {
+        "toys": "{  \"f082c00246fa\" : {    \"id\" : \"f082c00246fa\",    \"status\" : \"1\",    \"version\" : \"\",    \"name\" : \"nora\",    \"battery\" : 60,    \"nickName\" : \"\",    \"shortFunctionNames\" : [      \"v\",    \"r\"    ],    \"fullFunctionNames\" : [       \"Vibrate\",    \"Rotate\"    ]  }}",
+        "platform": "ios",
+        "appType": "remote"
+    },
+    "type": "OK"
+}
 //which menu of TUI should be shown
 var term_menu = 0
 //which menu are we in
@@ -167,7 +180,7 @@ function TUI_read_input(input){
     if (Number.isInteger(input)) {
         //if in main menu, move between menus
         if (term_menu == 0) {
-            if (input >= 0 && input <= 3) {
+            if (input >= 0 && input <= 2) {
                 term_menu = input
             }
             return
@@ -187,8 +200,11 @@ function TUI_read_input(input){
                 term_menu = 4 //going to port input screen
             }
             if (input == 4){
-                term_menu = 0 //back to main menu
+                logging = ! logging
 
+            }
+            if (input == 5){
+                term_menu = 0 //back to main menu
             }
         return
         }
@@ -248,6 +264,14 @@ function TUI_read_input_string(input){
     return
 }
 
+//to log LR input
+function TUI_logging(data){
+    if (logging){
+        TUI_print()
+        console.log(data)
+    }
+}
+
 //this object is the spoof server
 //each time the game sends a request in POST format, it sends it to the parser function
 const LR_server = http.createServer(function (req, res) {
@@ -266,7 +290,7 @@ const LR_server = http.createServer(function (req, res) {
 //don't forget to send OK message back to the game
 function LR_command_parser(body,res){
     let data = JSON.parse(body)
-    //console.log(data)
+    TUI_logging(data)
     let reply_OK = {
         "code": 200,
         "type": "ok"
@@ -285,21 +309,31 @@ function LR_command_parser(body,res){
             let action = data.action
             let action_array = action.split(',')
 
+            let loopRunningSec = 0
+            let loopPauseSec = 0
+
+            if (data.hasOwnProperty("loopRunningSec")) {loopRunningSec = data.loopRunningSec}
+            if (data.hasOwnProperty("loopPauseSec")) {loopPauseSec = data.loopPauseSec}
+
             for (let i = 0; i < action_array.length; i++) {
                 let action_parts = action_array[i].split(':')
-                LR_function_translate(action_parts[0], parseInt(action_parts[1], 10), parseInt(data.timeSec) * 1000, parseInt(data.loopRunningSec) * 1000, parseInt(data.loopPauseSec) * 1000)
+                LR_function_translate(action_parts[0], parseInt(action_parts[1], 10), parseInt(data.timeSec) * 1000, parseInt(loopRunningSec) * 1000, parseInt(loopPauseSec) * 1000)
             }
 
             res.writeHead(200, {'Content-Type': 'application/json'});
             res.end(JSON.stringify(reply_OK))
         }
         if (data.command == 'Position'){
-
+            res.writeHead(200, {'Content-Type': 'application/json'});
+            res.end(JSON.stringify(reply_OK))
         }
         if (data.command == 'Pattern'){
             let rule = data.rule
             let rule_set = rule.split(';') // 0 is protocol, irrelevant //1 is action, 2 is interval
             let action_raw = rule_set[1].split(':') // 1 is list of orders
+            if (action_raw.length = 1) {
+                action_raw.push('a')
+            }
             let action_list = action_raw[1].split(',') //list of commands
             let strength_list = data.strength.split(';') // make array of strength param and turn into integers
             for (let i = 0; i < strength_list.length; i++) {
@@ -311,13 +345,41 @@ function LR_command_parser(body,res){
             for (let i = 0; i < action_list.length; i++) {
                 LR_pattern_translate(action_list[i], strength_list, parseInt(data.timeSec * 1000), interval)
             }
+
+            res.writeHead(200, {'Content-Type': 'application/json'});
+            res.end(JSON.stringify(reply_OK))
         }
         if (data.command == 'PatternV2'){
-
+            res.writeHead(200, {'Content-Type': 'application/json'});
+            res.end(JSON.stringify(reply_OK))
         }
         if (data.command == 'Preset'){
+            res.writeHead(200, {'Content-Type': 'application/json'});
+            res.end(JSON.stringify(reply_OK))
+        }
+        if (data.command == 'Stop'){
+            LR_stop_translate()
+
+            res.writeHead(200, {'Content-Type': 'application/json'});
+            res.end(JSON.stringify(reply_OK))
+
 
         }
+    }
+}
+
+let LR_stop = false
+
+
+async function LR_stop_translate(){
+    if (IC_server_online) {
+        IC_send_vibration(0, 1)
+        IC_send_oscillation(0, 1)
+        IC_send_rotation(0, 1, true)
+
+        LR_stop = true
+        await new Promise(r => setTimeout(r, 100));
+        LR_stop = false
     }
 }
 
@@ -326,10 +388,20 @@ async function LR_function_translate(action, strength, duration, loop_duration, 
     let last_iteration = duration -  (loop_duration + loop_pause ) * full_iterations; //final incomplete loop
     if (last_iteration > loop_duration){ last_iteration = loop_duration; } // make sure it's not too long
 
+    let has_final_loop = false
+    if (last_iteration > 0){has_final_loop = true}
+    if (duration == 0) {
+        has_final_loop = true
+        last_iteration = 0
+    }
+
     if (IC_server_online){
 
         //MAIN LOOP
         for (let i = 0; i < full_iterations; i++) {
+
+            if (LR_stop) {break}
+
             //vibrate
             if (action == "Vibrate") {
                 IC_send_vibration(strength / 20, loop_duration)
@@ -367,7 +439,7 @@ async function LR_function_translate(action, strength, duration, loop_duration, 
         }
 
         //LAST ITERATION
-        if (last_iteration > 0) {
+        if (has_final_loop && ! LR_stop) {
             //vibrate
             if (action == "Vibrate") {
                 IC_send_vibration(strength / 20, last_iteration)
@@ -413,6 +485,7 @@ async function LR_function_translate(action, strength, duration, loop_duration, 
 
 async function LR_pattern_translate(action, strength_list, duration, interval){
     let iterations = parseInt(duration / interval)
+    if (iterations == 0) {iterations = 99999} // for when timeSec is set as 0, meaning indefinite
 
     let j = 0 //index for strength_list
 
@@ -422,6 +495,7 @@ async function LR_pattern_translate(action, strength_list, duration, interval){
                 j = 0
             } //let j index loop
 
+            if (LR_stop) {break}
 
             await new Promise(r => setTimeout(r, interval));
 
@@ -429,7 +503,7 @@ async function LR_pattern_translate(action, strength_list, duration, interval){
             if (action == "v") {
 
                 IC_send_vibration(strength_list[j] / 20, 0)
-                //console.log("sent_vibration")
+                console.log("sent_vibration")
             }
             //rotate
             if (action == "r") {
@@ -449,6 +523,12 @@ async function LR_pattern_translate(action, strength_list, duration, interval){
             }
             //suction
             if (action == "s") {
+            }
+            //all
+            if (action == "a") {
+                if (! vibrating) {IC_send_vibration(strength / 20, 0)}
+                if (! oscillating) {IC_send_oscillation(strength / 20, 0)}
+                if (! rotating) {IC_send_rotation(strength / 20, 0, true)}
             }
         }
         j += 1
@@ -508,6 +588,7 @@ async function IC_connect() {
 
     client.startScanning()
     //IC_send_vibration(1,1000)
+    test_toys()
 
 }
 //////////////////////////////////////////////////
