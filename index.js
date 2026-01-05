@@ -421,12 +421,13 @@ async function LR_pattern_translate(action, strength_list, duration, interval){
             if (j > strength_list.length - 1) {
                 j = 0
             } //let j index loop
-            j += 1
+
 
             await new Promise(r => setTimeout(r, interval));
 
             //vibrate
             if (action == "v") {
+
                 IC_send_vibration(strength_list[j] / 20, 0)
                 //console.log("sent_vibration")
             }
@@ -450,6 +451,7 @@ async function LR_pattern_translate(action, strength_list, duration, interval){
             if (action == "s") {
             }
         }
+        j += 1
         IC_send_vibration(0,1)
         IC_send_oscillation(0,1)
         IC_send_rotation(0,1,true)
