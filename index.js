@@ -3,6 +3,7 @@ const ini = require('ini'); //for managing .ini file for persistent settings
 const {stringify} = require("ini");
 var term = require('terminal-kit').terminal; //library for TUI handling
 const http = require('http'); //for creating a server that pretends to be a Lovense Remote server
+const https = require('https'); //for HTTPS support
 const buttplug = require('buttplug') //for connecting to Intiface Central
 
 // read config file with persistent settings
@@ -140,8 +141,8 @@ async function TUI_print(){
     else { IC_auto_indicator = "^rOFF"}
 
     let LR_listen_indicator
-    if (LR_server_trying) {LR_listen_indicator = "^g" + config.LR_port}
-    else {LR_listen_indicator = "^r" + config.LR_port}
+    if (LR_server_trying) {LR_listen_indicator = "^g" + config.LR_http_port}
+    else {LR_listen_indicator = "^r" + config.LR_http_port}
 
     term("Game status: ")(online_indicator_LR)("           Intiface status: ")(online_indicator_IC)("\n");
 
@@ -239,7 +240,7 @@ function TUI_read_input(input){
         }
         //LR port input
         if (term_menu == 4){
-            config.LR_port = input
+            config.LR_http_port = input
             fs.writeFileSync('./settings.ini', stringify(config))
             reparse_config()
             term_menu = 1
@@ -285,6 +286,28 @@ const LR_server = http.createServer(function (req, res) {
         })
     }
 });
+
+//HTTPS server for mobile devices (with self-signed certificate)
+let LR_server_https;
+try {
+    const key = fs.readFileSync('./server.key');
+    const cert = fs.readFileSync('./server.cert');
+    LR_server_https = https.createServer({key: key, cert: cert}, function (req, res) {
+        if (req.method === "POST"){
+            let body = ''
+            req.on('data', function(data){
+                body += data
+            })
+            req.on('end', function(){
+                LR_command_parser(body,res)
+            })
+        }
+    });
+} catch(ex){
+    console.log("SSL certificates not found. HTTPS server will not be available.")
+    console.log("To enable HTTPS, generate certificates with: openssl req -nodes -new -x509 -keyout server.key -out server.cert -days 365")
+    LR_server_https = null
+}
 
 //parser function for the spoofer. check if it's a legal command, then translate it and send to Intiface handler
 //don't forget to send OK message back to the game
@@ -542,13 +565,25 @@ async function LR_pattern_translate(action, strength_list, duration, interval){
 function LR_server_switch(server_switch){
     if (server_switch) {
         try {
-            LR_server.listen(config.LR_port)
+            LR_server.listen(config.LR_http_port)
 
             LR_server.on('error', (e) => {
                 if (e.code === 'EADDRINUSE'){
                     console.error("LR port is currently in use")
                 }
             })
+            
+            // Also start HTTPS server on port+1 if certificates are available
+            if (LR_server_https) {
+                const https_port = config.LR_https_port
+                LR_server_https.listen(https_port)
+                
+                LR_server_https.on('error', (e) => {
+                    if (e.code === 'EADDRINUSE'){
+                        console.error("LR HTTPS port is currently in use")
+                    }
+                })
+            }
         } catch(ex){
             console.log(ex)
         }
@@ -557,6 +592,9 @@ function LR_server_switch(server_switch){
 
     else {
         LR_server.close()
+        if (LR_server_https) {
+            LR_server_https.close()
+        }
     }
 }
 
